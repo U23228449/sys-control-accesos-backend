@@ -32,6 +32,12 @@ public class GlobalExceptionHandler {
         return new ApiError(409, "CONFLICT", ex.getMessage(), req.getRequestURI());
     }
 
+    @ExceptionHandler(ConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError handleConflict(ConflictException ex, HttpServletRequest req) {
+        return new ApiError(409, "CONFLICT", ex.getMessage(), req.getRequestURI());
+    }
+
     @ExceptionHandler(BusinessRuleException.class)
     @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
     public ApiError handleBusinessRule(BusinessRuleException ex, HttpServletRequest req) {
@@ -75,7 +81,13 @@ public class GlobalExceptionHandler {
         return new ApiError(409, "CONFLICT", "Ya existe un registro con los datos proporcionados.", req.getRequestURI());
     }
 
-    // Catch-all para errores no previstos
+    // Parámetros inválidos
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiError handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest req) {
+        return new ApiError(400, "BAD_REQUEST", ex.getMessage(), req.getRequestURI());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiError handleGeneric(Exception ex, HttpServletRequest req) {

@@ -84,13 +84,13 @@ class AuditoriaControllerIT extends AbstractIntegrationTest {
         propietario = Usuario.builder()
                 .rol(rolUsuario)
                 .nombreCompleto("Usuario Comun")
-                .correo("usuario.comun@unicampus.edu.pe")
+                .correo("usuario.auditoria@unicampus.edu.pe")
                 .documento("USR009")
                 .passwordHash(passwordEncoder.encode("Usuario123!"))
                 .enabled(true)
                 .build();
         usuarioRepository.save(propietario);
-        tokenUsuario = "Bearer " + loginYObtenerToken("usuario.comun@unicampus.edu.pe", "Usuario123!");
+        tokenUsuario = "Bearer " + loginYObtenerToken("usuario.auditoria@unicampus.edu.pe", "Usuario123!");
     }
 
     @Test

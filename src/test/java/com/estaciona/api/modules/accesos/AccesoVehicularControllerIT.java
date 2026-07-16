@@ -415,6 +415,41 @@ class AccesoVehicularControllerIT extends AbstractIntegrationTest {
         assertThat(response.getBody().get("error")).isEqualTo("CONFLICT");
     }
 
+    @Test
+    @DisplayName("debe_responder_200_con_historial_paginado")
+    void debe_responder_200_con_historial_paginado() {
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL, HttpMethod.GET, crearRequest(null, tokenAdmin), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = response.getBody();
+        assertThat(body).isNotNull();
+        Map<String, Object> data = (Map<String, Object>) body.get("data");
+        assertThat(data.get("content")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("debe_filtrar_por_estado_completada")
+    void debe_filtrar_por_estado_completada() {
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "?estado=completada", HttpMethod.GET, crearRequest(null, tokenAdmin), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = response.getBody();
+        assertThat(body).isNotNull();
+        Map<String, Object> data = (Map<String, Object>) body.get("data");
+        assertThat(data.get("content")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("debe_responder_403_si_no_es_administrador")
+    void debe_responder_403_si_no_es_administrador() {
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL, HttpMethod.GET, crearRequest(null, tokenUsuario), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     private HttpEntity<Map> crearRequest(Map body, String bearerToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

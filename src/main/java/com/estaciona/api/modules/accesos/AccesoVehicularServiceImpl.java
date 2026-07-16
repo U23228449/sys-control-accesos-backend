@@ -2,10 +2,14 @@ package com.estaciona.api.modules.accesos;
 
 import com.estaciona.api.common.exception.DuplicateResourceException;
 import com.estaciona.api.common.exception.ResourceNotFoundException;
+import com.estaciona.api.modules.accesos.dto.AccesoVehicularFiltroRequest;
+import com.estaciona.api.modules.accesos.dto.AccesoVehicularHistorialProjection;
 import com.estaciona.api.modules.accesos.dto.AccesoVehicularRequest;
 import com.estaciona.api.modules.accesos.dto.AccesoVehicularResponse;
 import com.estaciona.api.modules.accesos.entity.AccesoVehicular;
 import com.estaciona.api.modules.accesos.validation.AccesoVehicularValidationStrategy;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import com.estaciona.api.modules.usuarios.UsuarioRepository;
 import com.estaciona.api.modules.usuarios.entity.Usuario;
 import com.estaciona.api.modules.vehiculos.VehiculoRepository;
@@ -18,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import com.estaciona.api.modules.accesos.entity.AccesoEstadoEnum;
 
 /**
  * Implementación del servicio de acceso vehicular.
@@ -117,6 +122,90 @@ public class AccesoVehicularServiceImpl implements AccesoVehicularService {
         return toResponse(accesoActualizado);
     }
 
+    private record AccesoVehicularHistorialProjectionImpl(
+            UUID id,
+            String placa,
+            String tipoVehiculo,
+            String marcaModelo,
+            String propietarioNombre,
+            String zonaNombre,
+            String campusNombre,
+            String guardiaEntradaNombre,
+            String guardiaSalidaNombre,
+            OffsetDateTime horaIngreso,
+            OffsetDateTime horaSalida,
+            String estado
+    ) implements AccesoVehicularHistorialProjection {
+        @Override public UUID getId() { return id; }
+        @Override public String getPlaca() { return placa; }
+        @Override public String getTipoVehiculo() { return tipoVehiculo; }
+        @Override public String getMarcaModelo() { return marcaModelo; }
+        @Override public String getPropietarioNombre() { return propietarioNombre; }
+        @Override public String getZonaNombre() { return zonaNombre; }
+        @Override public String getCampusNombre() { return campusNombre; }
+        @Override public String getGuardiaEntradaNombre() { return guardiaEntradaNombre; }
+        @Override public String getGuardiaSalidaNombre() { return guardiaSalidaNombre; }
+        @Override public OffsetDateTime getHoraIngreso() { return horaIngreso; }
+        @Override public OffsetDateTime getHoraSalida() { return horaSalida; }
+        @Override public String getEstado() { return estado; }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AccesoVehicularHistorialProjection> consultarHistorial(
+            AccesoVehicularFiltroRequest filtro, Pageable pageable) {
+        if (filtro != null) {
+            // 1. Validar rango de fechas coherente
+            if (filtro.desde() != null && filtro.hasta() != null && filtro.desde().isAfter(filtro.hasta())) {
+                throw new IllegalArgumentException("La fecha de inicio (desde) no puede ser posterior a la fecha de fin (hasta).");
+            }
+            // 2. Validar que la zona exista si viene provista
+            if (filtro.zonaId() != null) {
+                if (!zonaRepository.existsById(filtro.zonaId())) {
+                    throw new ResourceNotFoundException("La zona con id " + filtro.zonaId() + " no existe.");
+                }
+            }
+            // 3. Validar estado contra enum
+            if (filtro.estado() != null && !filtro.estado().isBlank()) {
+                try {
+                    AccesoEstadoEnum.valueOf(filtro.estado().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("El estado '" + filtro.estado() + "' no es un estado de acceso válido.");
+                }
+            }
+        }
+        
+        org.springframework.data.jpa.domain.Specification<AccesoVehicular> spec = 
+                com.estaciona.api.modules.accesos.spec.AccesoVehicularHistorialSpecifications.construir(filtro);
+        Page<AccesoVehicular> accesos = accesoVehicularRepository.findAll(spec, pageable);
+        
+        if (accesos.isEmpty()) {
+            throw new ResourceNotFoundException("No se encontraron registros de accesos para los criterios aplicados.");
+        }
+        
+        return accesos.map(acceso -> new AccesoVehicularHistorialProjectionImpl(
+                acceso.getId(),
+                acceso.getVehiculo().getPlaca(),
+                acceso.getVehiculo().getTipo(),
+                acceso.getVehiculo().getMarcaModelo(),
+                acceso.getUsuario().getNombreCompleto(),
+                acceso.getZona().getNombre(),
+                acceso.getZona().getCampus().getNombre(),
+                acceso.getGuardiaEntrada().getNombreCompleto(),
+                acceso.getGuardiaSalida() != null ? acceso.getGuardiaSalida().getNombreCompleto() : null,
+                acceso.getHoraIngreso(),
+                acceso.getHoraSalida(),
+                acceso.getEstado()
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AccesoVehicularResponse> obtenerAccesosActivos() {
+        List<AccesoVehicular> activos = accesoVehicularRepository.findByEstadoIgnoreCase("en_curso");
+        return activos.stream().map(this::toResponse).toList();
+    }
+
     /** Mapeo manual de AccesoVehicular a AccesoVehicularResponse. */
     private AccesoVehicularResponse toResponse(AccesoVehicular acceso) {
         return new AccesoVehicularResponse(
@@ -125,6 +214,9 @@ public class AccesoVehicularServiceImpl implements AccesoVehicularService {
                 acceso.getVehiculo().getMarcaModelo(),
                 acceso.getUsuario().getNombreCompleto(),
                 acceso.getZona().getNombre(),
+                acceso.getZona().getId(),
+                acceso.getUsuario().getTipoUsuario(),
+                acceso.getUsuario().getRol().getNombre(),
                 acceso.getGuardiaEntrada().getNombreCompleto(),
                 acceso.getGuardiaSalida() != null ? acceso.getGuardiaSalida().getNombreCompleto() : null,
                 acceso.getHoraIngreso(),

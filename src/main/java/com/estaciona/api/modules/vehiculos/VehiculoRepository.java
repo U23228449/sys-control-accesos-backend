@@ -23,6 +23,13 @@ public interface VehiculoRepository extends JpaRepository<Vehiculo, UUID> {
     /** Devuelve todos los vehículos habilitados de un usuario proyectados a VehiculoResumenProjection. */
     List<com.estaciona.api.modules.vehiculos.dto.VehiculoResumenProjection> findByUsuarioIdAndEnabledTrue(UUID usuarioId);
 
+    /** Devuelve todos los vehículos (habilitados y deshabilitados) de un usuario proyectados a VehiculoResumenProjection. */
+    @org.springframework.data.jpa.repository.Query("SELECT v.id as id, v.tipo as tipo, v.placa as placa, v.marcaModelo as marcaModelo, " +
+            "v.color as color, v.enabled as enabled " +
+            "FROM Vehiculo v WHERE v.usuario.id = :usuarioId")
+    List<com.estaciona.api.modules.vehiculos.dto.VehiculoResumenProjection> findAllResumenByUsuarioId(
+            @org.springframework.data.repository.query.Param("usuarioId") UUID usuarioId);
+
     /** Busca un vehículo por su placa proyectado a VehiculoBuscadoProjection con datos de propietario. */
     @org.springframework.data.jpa.repository.Query("SELECT v.id as id, v.tipo as tipo, v.placa as placa, v.marcaModelo as marcaModelo, " +
             "v.color as color, v.enabled as enabled, " +

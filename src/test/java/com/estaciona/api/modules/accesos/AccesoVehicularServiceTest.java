@@ -4,7 +4,13 @@ import com.estaciona.api.common.exception.DuplicateResourceException;
 import com.estaciona.api.common.exception.ResourceNotFoundException;
 import com.estaciona.api.modules.accesos.dto.AccesoVehicularRequest;
 import com.estaciona.api.modules.accesos.dto.AccesoVehicularResponse;
+import com.estaciona.api.modules.accesos.dto.AccesoVehicularFiltroRequest;
+import com.estaciona.api.modules.accesos.dto.AccesoVehicularHistorialProjection;
 import com.estaciona.api.modules.accesos.entity.AccesoVehicular;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import com.estaciona.api.modules.accesos.validation.AccesoVehicularValidationStrategy;
 import com.estaciona.api.modules.roles.entity.Rol;
 import com.estaciona.api.modules.usuarios.UsuarioRepository;
@@ -211,5 +217,50 @@ class AccesoVehicularServiceTest {
         assertThatThrownBy(() -> service.registrarSalida(accesoId, guardiaId))
                 .isInstanceOf(DuplicateResourceException.class)
                 .hasMessageContaining("El acceso vehicular ya se encuentra completado.");
+    }
+
+    @Test
+    @DisplayName("debe_consultar_historial_de_accesos_filtrado")
+    void debe_consultar_historial_de_accesos_filtrado() {
+        // Arrange
+        OffsetDateTime ahora = OffsetDateTime.now();
+        AccesoVehicularFiltroRequest filtro = new AccesoVehicularFiltroRequest(ahora.minusDays(1), ahora, "ABC123", "en_curso", 1);
+        Pageable pageable = PageRequest.of(0, 10);
+
+        when(zonaRepository.existsById(1)).thenReturn(true);
+
+        AccesoVehicular mockAcceso = mock(AccesoVehicular.class);
+        Vehiculo mockVehiculo = mock(Vehiculo.class);
+        Usuario mockUsuario = mock(Usuario.class);
+        Zona mockZona = mock(Zona.class);
+        com.estaciona.api.modules.campus.entity.Campus mockCampus = mock(com.estaciona.api.modules.campus.entity.Campus.class);
+        Usuario mockGuardia = mock(Usuario.class);
+
+        when(mockAcceso.getId()).thenReturn(UUID.randomUUID());
+        when(mockAcceso.getVehiculo()).thenReturn(mockVehiculo);
+        when(mockVehiculo.getPlaca()).thenReturn("ABC123");
+        when(mockVehiculo.getTipo()).thenReturn("auto");
+        when(mockVehiculo.getMarcaModelo()).thenReturn("Toyota");
+        when(mockAcceso.getUsuario()).thenReturn(mockUsuario);
+        when(mockUsuario.getNombreCompleto()).thenReturn("Juan Pérez");
+        when(mockAcceso.getZona()).thenReturn(mockZona);
+        when(mockZona.getNombre()).thenReturn("Zona A");
+        when(mockZona.getCampus()).thenReturn(mockCampus);
+        when(mockCampus.getNombre()).thenReturn("Campus Norte");
+        when(mockAcceso.getGuardiaEntrada()).thenReturn(mockGuardia);
+        when(mockGuardia.getNombreCompleto()).thenReturn("Guardia Uno");
+        when(mockAcceso.getHoraIngreso()).thenReturn(ahora);
+        when(mockAcceso.getEstado()).thenReturn("en_curso");
+
+        Page<AccesoVehicular> page = new PageImpl<>(List.of(mockAcceso));
+        when(accesoVehicularRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class))).thenReturn(page);
+
+        // Act
+        Page<AccesoVehicularHistorialProjection> result = service.consultarHistorial(filtro, pageable);
+
+        // Assert
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getPlaca()).isEqualTo("ABC123");
+        verify(accesoVehicularRepository, times(1)).findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class));
     }
 }

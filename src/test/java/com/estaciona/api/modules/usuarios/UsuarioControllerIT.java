@@ -39,6 +39,7 @@ class UsuarioControllerIT extends AbstractIntegrationTest {
     private static final String URL = "/api/v1/usuarios";
     private String tokenAdmin;
     private String tokenSeguridad;
+    private String tokenUsuario;
 
     @BeforeAll
     void setupUsuariosPrueba() {
@@ -58,6 +59,20 @@ class UsuarioControllerIT extends AbstractIntegrationTest {
         usuarioRepository.save(seguridad);
 
         tokenSeguridad = "Bearer " + loginYObtenerToken("seguridad@unicampus.edu.pe", "Seguridad123!");
+
+        // Crear un usuario de rol USUARIO para probar edición propia
+        Rol rolUsuario = rolRepository.findByNombre("USUARIO").orElseThrow();
+        Usuario usuarioComun = Usuario.builder()
+                .rol(rolUsuario)
+                .nombreCompleto("Usuario Comun Test")
+                .correo("usuario.comun@unicampus.edu.pe")
+                .documento("00000003")
+                .passwordHash(passwordEncoder.encode("Usuario123!"))
+                .enabled(true)
+                .build();
+        usuarioRepository.save(usuarioComun);
+
+        tokenUsuario = "Bearer " + loginYObtenerToken("usuario.comun@unicampus.edu.pe", "Usuario123!");
     }
 
     @Test
@@ -238,6 +253,242 @@ class UsuarioControllerIT extends AbstractIntegrationTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", bearerToken);
         return new HttpEntity<>(body, headers);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_perfil_propio_ok")
+    void debe_actualizar_perfil_propio_ok() {
+        // Arrange
+        var body = Map.of(
+                "nombreCompleto", "Usuario Comun Modificado",
+                "correo", "usuario.comun.mod@unicampus.edu.pe",
+                "documento", "00000003",
+                "passwordActual", "Usuario123!",
+                "passwordNuevo", "UsuarioNuevo123!"
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/me", HttpMethod.PUT, crearRequest(body, tokenUsuario), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("nombreCompleto")).isEqualTo("Usuario Comun Modificado");
+        assertThat(data.get("correo")).isEqualTo("usuario.comun.mod@unicampus.edu.pe");
+
+        // Revertir correo para no afectar otros tests y probar login con nueva contraseña
+        String loginToken = loginYObtenerToken("usuario.comun.mod@unicampus.edu.pe", "UsuarioNuevo123!");
+        assertThat(loginToken).isNotEmpty();
+
+        var revertBody = Map.of(
+                "nombreCompleto", "Usuario Comun Test",
+                "correo", "usuario.comun@unicampus.edu.pe",
+                "documento", "00000003",
+                "passwordActual", "UsuarioNuevo123!",
+                "passwordNuevo", "Usuario123!"
+        );
+        restTemplate.exchange(URL + "/me", HttpMethod.PUT, crearRequest(revertBody, "Bearer " + loginToken), Map.class);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_409_si_correo_ya_existe_al_actualizar")
+    void debe_lanzar_409_si_correo_ya_existe_al_actualizar() {
+        // Arrange
+        var body = Map.of(
+                "nombreCompleto", "Usuario Comun Modificado",
+                "correo", "admin@unicampus.edu.pe", // Correo del administrador
+                "documento", "00000003"
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/me", HttpMethod.PUT, crearRequest(body, tokenUsuario), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_si_password_actual_incorrecto_al_actualizar")
+    void debe_lanzar_422_si_password_actual_incorrecto_al_actualizar() {
+        // Arrange
+        var body = Map.of(
+                "nombreCompleto", "Usuario Comun Modificado",
+                "correo", "usuario.comun@unicampus.edu.pe",
+                "documento", "00000003",
+                "passwordActual", "WrongPassword123!",
+                "passwordNuevo", "UsuarioNuevo123!"
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/me", HttpMethod.PUT, crearRequest(body, tokenUsuario), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_rol_de_usuario_como_admin")
+    void debe_actualizar_rol_de_usuario_como_admin() {
+        // Arrange
+        Usuario usuarioAEditar = usuarioRepository.findByCorreoIgnoreCase("usuario.comun@unicampus.edu.pe").orElseThrow();
+        Rol rolSeguridad = rolRepository.findByNombre("SEGURIDAD").orElseThrow();
+        var body = Map.of("rolId", rolSeguridad.getId());
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + usuarioAEditar.getId() + "/rol", HttpMethod.PUT, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("rol")).isEqualTo("SEGURIDAD");
+
+        // Revertir rol
+        Rol rolUsuario = rolRepository.findByNombre("USUARIO").orElseThrow();
+        usuarioAEditar.setRol(rolUsuario);
+        usuarioRepository.save(usuarioAEditar);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_403_si_no_es_admin_al_cambiar_rol")
+    void debe_lanzar_403_si_no_es_admin_al_cambiar_rol() {
+        // Arrange
+        Usuario usuarioAEditar = usuarioRepository.findByCorreoIgnoreCase("usuario.comun@unicampus.edu.pe").orElseThrow();
+        var body = Map.of("rolId", 1); // Intentar poner rol admin
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + usuarioAEditar.getId() + "/rol", HttpMethod.PUT, crearRequest(body, tokenSeguridad), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_estado_de_usuario_como_admin")
+    void debe_actualizar_estado_de_usuario_como_admin() {
+        // Arrange
+        Usuario usuarioAEditar = usuarioRepository.findByCorreoIgnoreCase("usuario.comun@unicampus.edu.pe").orElseThrow();
+        var body = Map.of("enabled", false);
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + usuarioAEditar.getId() + "/estado", HttpMethod.PATCH, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("enabled")).isEqualTo(false);
+
+        // Revertir
+        usuarioAEditar.setEnabled(true);
+        usuarioRepository.save(usuarioAEditar);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_al_desactivar_ultimo_admin_activo")
+    void debe_lanzar_422_al_desactivar_ultimo_admin_activo() {
+        // Arrange
+        Usuario admin = usuarioRepository.findByCorreoIgnoreCase("admin@unicampus.edu.pe").orElseThrow();
+        Rol rolAdmin = rolRepository.findByNombre("ADMINISTRADOR").orElseThrow();
+        
+        // Deshabilitar temporalmente otros admins activos
+        java.util.List<Usuario> otrosAdmins = usuarioRepository.findAll().stream()
+                .filter(u -> u.getRol().getId().equals(rolAdmin.getId()) && u.isEnabled() && !u.getId().equals(admin.getId()))
+                .toList();
+        for (Usuario u : otrosAdmins) {
+            u.setEnabled(false);
+            usuarioRepository.saveAndFlush(u);
+        }
+
+        var body = Map.of("enabled", false);
+
+        try {
+            // Act
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    URL + "/" + admin.getId() + "/estado", HttpMethod.PATCH, crearRequest(body, tokenAdmin), Map.class);
+
+            // Assert
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        } finally {
+            // Revertir
+            for (Usuario u : otrosAdmins) {
+                u.setEnabled(true);
+                usuarioRepository.saveAndFlush(u);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("debe_consultar_usuarios_filtrado_y_paginado")
+    void debe_consultar_usuarios_filtrado_y_paginado() {
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "?rolNombre=ADMINISTRADOR&enabled=true&busqueda=admin", HttpMethod.GET, crearRequest(null, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        java.util.List<?> content = (java.util.List<?>) data.get("content");
+        assertThat(content).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("debe_eliminar_usuario_soft_delete_ok")
+    void debe_eliminar_usuario_soft_delete_ok() {
+        // Arrange
+        Rol rolUsuario = rolRepository.findByNombre("USUARIO").orElseThrow();
+        Usuario temporal = Usuario.builder()
+                .rol(rolUsuario)
+                .nombreCompleto("Usuario Temporal")
+                .correo("temporal@unicampus.edu.pe")
+                .documento("TEMP01")
+                .passwordHash(passwordEncoder.encode("Temp123!"))
+                .enabled(true)
+                .build();
+        usuarioRepository.save(temporal);
+
+        // Act
+        ResponseEntity<Void> response = restTemplate.exchange(
+                URL + "/" + temporal.getId(), HttpMethod.DELETE, crearRequest(null, tokenAdmin), Void.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        
+        Usuario eliminado = usuarioRepository.findById(temporal.getId()).orElseThrow();
+        assertThat(eliminado.isEnabled()).isFalse();
+
+        // Limpiar
+        usuarioRepository.delete(eliminado);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_al_eliminar_ultimo_admin_activo")
+    void debe_lanzar_422_al_eliminar_ultimo_admin_activo() {
+        // Arrange - Crear un segundo admin deshabilitado
+        Rol rolAdmin = rolRepository.findByNombre("ADMINISTRADOR").orElseThrow();
+        Usuario adminInactivo = Usuario.builder()
+                .rol(rolAdmin)
+                .nombreCompleto("Admin Inactivo")
+                .correo("admin.inactivo@unicampus.edu.pe")
+                .documento("ADMININAC")
+                .passwordHash(passwordEncoder.encode("Admin123!"))
+                .enabled(false) // inactivo
+                .build();
+        usuarioRepository.save(adminInactivo);
+
+        // Act - Intentar eliminar al admin inactivo (el total de admins activos en BD es 1: el admin semilla)
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + adminInactivo.getId(), HttpMethod.DELETE, crearRequest(null, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        // Limpiar
+        usuarioRepository.delete(adminInactivo);
     }
 
     @SuppressWarnings("unchecked")

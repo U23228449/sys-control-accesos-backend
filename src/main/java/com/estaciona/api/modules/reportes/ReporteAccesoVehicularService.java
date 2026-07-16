@@ -16,7 +16,12 @@ public interface ReporteAccesoVehicularService {
     Page<AccesoVehicularReporteProjection> generarReporte(ReporteAccesoFiltroRequest filtro, Pageable pageable);
 
     /**
-     * Exporta el listado completo filtrado a formato Excel en un arreglo de bytes.
+     * Exporta el listado completo filtrado al formato seleccionado ("excel" o "pdf").
      */
-    byte[] exportarExcel(ReporteAccesoFiltroRequest filtro);
+    byte[] exportarReporte(ReporteAccesoFiltroRequest filtro, String formato);
+
+    /**
+     * Recupera la estrategia de exportación asociada al formato solicitado.
+     */
+    com.estaciona.api.modules.reportes.strategy.ExportacionFormatoStrategy obtenerEstrategia(String formato);
 }

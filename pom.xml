@@ -113,6 +113,13 @@
 			<version>5.3.0</version>
 		</dependency>
 
+		<!-- Reportes PDF (Fase 3 Ext.) -->
+		<dependency>
+			<groupId>com.github.librepdf</groupId>
+			<artifactId>openpdf</artifactId>
+			<version>2.0.3</version>
+		</dependency>
+
 		<!-- Documentación API -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

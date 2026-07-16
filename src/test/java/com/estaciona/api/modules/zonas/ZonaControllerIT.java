@@ -3,6 +3,8 @@ package com.estaciona.api.modules.zonas;
 import com.estaciona.api.modules.roles.RolRepository;
 import com.estaciona.api.modules.usuarios.UsuarioRepository;
 import com.estaciona.api.modules.usuarios.entity.Usuario;
+import com.estaciona.api.modules.campus.CampusRepository;
+import com.estaciona.api.modules.zonas.entity.Zona;
 import com.estaciona.api.support.AbstractIntegrationTest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,12 @@ class ZonaControllerIT extends AbstractIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private CampusRepository campusRepository;
+
+    @Autowired
+    private ZonaRepository zonaRepository;
 
     private static final String URL = "/api/v1/zonas-estacionamiento";
     private String tokenAdmin;
@@ -171,6 +179,152 @@ class ZonaControllerIT extends AbstractIntegrationTest {
         // Assert
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().get("error")).isEqualTo("BAD_REQUEST");
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_zona_ok")
+    void debe_actualizar_zona_ok() {
+        // Arrange
+        // Cargamos el campus del seed
+        var campus = campusRepository.findAll().get(0);
+        Zona nuevaZona = Zona.builder()
+                .campus(campus)
+                .nombre("Zona Test Actualizacion")
+                .tipo("cubierta")
+                .aforoMaximo(20)
+                .aforoDisponible(20)
+                .estado("activa")
+                .enabled(true)
+                .build();
+        zonaRepository.save(nuevaZona);
+
+        var body = Map.of(
+                "nombre", "Zona Test Modificada",
+                "ubicacion", "Ubicación Mod",
+                "tipo", "abierta",
+                "aforoMaximo", 30
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + nuevaZona.getId(), HttpMethod.PUT, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("nombre")).isEqualTo("Zona Test Modificada");
+        assertThat(data.get("aforoMaximo")).isEqualTo(30);
+        assertThat(data.get("aforoDisponible")).isEqualTo(30);
+
+        // Limpiar
+        zonaRepository.delete(nuevaZona);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_si_nuevo_aforo_menor_que_ocupados")
+    void debe_lanzar_422_si_nuevo_aforo_menor_que_ocupados() {
+        // Arrange
+        var campus = campusRepository.findAll().get(0);
+        Zona nuevaZona = Zona.builder()
+                .campus(campus)
+                .nombre("Zona Test Aforo")
+                .tipo("cubierta")
+                .aforoMaximo(10)
+                .aforoDisponible(6) // 4 ocupados (10 - 6)
+                .estado("activa")
+                .enabled(true)
+                .build();
+        zonaRepository.save(nuevaZona);
+
+        var body = Map.of(
+                "nombre", "Zona Test Aforo Mod",
+                "tipo", "cubierta",
+                "aforoMaximo", 3 // < 4 ocupados, es inválido
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + nuevaZona.getId(), HttpMethod.PUT, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        // Limpiar
+        zonaRepository.delete(nuevaZona);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_estado_zona_a_cerrada")
+    void debe_actualizar_estado_zona_a_cerrada() {
+        // Arrange
+        var campus = campusRepository.findAll().get(0);
+        Zona nuevaZona = Zona.builder()
+                .campus(campus)
+                .nombre("Zona Test Estado")
+                .tipo("cubierta")
+                .aforoMaximo(10)
+                .aforoDisponible(10) // vacía
+                .estado("activa")
+                .enabled(true)
+                .build();
+        zonaRepository.save(nuevaZona);
+
+        var body = Map.of("estado", "cerrada");
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + nuevaZona.getId() + "/estado", HttpMethod.PATCH, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("estado")).isEqualTo("cerrada");
+
+        // Limpiar
+        zonaRepository.delete(nuevaZona);
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_al_cerrar_zona_con_vehiculos_dentro")
+    void debe_lanzar_422_al_cerrar_zona_con_vehiculos_dentro() {
+        // Arrange
+        var campus = campusRepository.findAll().get(0);
+        Zona nuevaZona = Zona.builder()
+                .campus(campus)
+                .nombre("Zona Test Estado Con Vehiculos")
+                .tipo("cubierta")
+                .aforoMaximo(10)
+                .aforoDisponible(8) // 2 vehículos adentro
+                .estado("activa")
+                .enabled(true)
+                .build();
+        zonaRepository.save(nuevaZona);
+
+        var body = Map.of("estado", "cerrada");
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + nuevaZona.getId() + "/estado", HttpMethod.PATCH, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        // Limpiar
+        zonaRepository.delete(nuevaZona);
+    }
+
+    @Test
+    @DisplayName("debe_consultar_zonas_filtradas_ok")
+    void debe_consultar_zonas_filtradas_ok() {
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "?campusId=1&estado=activa&capacidadMinima=1", HttpMethod.GET, crearRequest(null, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        java.util.List<?> content = (java.util.List<?>) data.get("content");
+        assertThat(content).isNotEmpty();
     }
 
     /** Construye un HttpEntity con body JSON y header Authorization. */

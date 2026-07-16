@@ -311,6 +311,69 @@ class ReporteControllerIT extends AbstractIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("debe_responder_200_con_content_type_pdf_y_content_disposition_attachment")
+    void debe_responder_200_con_content_type_pdf_y_content_disposition_attachment() {
+        // Act
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                URL + "/exportar?formato=pdf", HttpMethod.GET, crearRequest(tokenCoordinador), byte[].class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType().toString()).isEqualTo("application/pdf");
+        assertThat(response.getHeaders().getContentDisposition().isAttachment()).isTrue();
+        assertThat(response.getHeaders().getContentDisposition().getFilename()).startsWith("reporte-accesos-").endsWith(".pdf");
+    }
+
+    @Test
+    @DisplayName("debe_generar_pdf_descargable_con_las_filas_filtradas")
+    void debe_generar_pdf_descargable_con_las_filas_filtradas() {
+        // Act - Filtrar para que solo venga el acceso en curso (Zona B)
+        String urlExportar = URL + "/exportar?formato=pdf&zonaId=" + zonaB.getId();
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                urlExportar, HttpMethod.GET, crearRequest(tokenCoordinador), byte[].class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        byte[] body = response.getBody();
+        assertThat(body).isNotEmpty();
+        // Verificar firma de archivo PDF (%PDF-)
+        assertThat(body).startsWith(new byte[]{0x25, 0x50, 0x44, 0x46, 0x2d}); // %PDF-
+    }
+
+    @Test
+    @DisplayName("debe_obtener_reporte_disponibilidad_zonas")
+    void debe_obtener_reporte_disponibilidad_zonas() {
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/reportes/zonas", HttpMethod.GET, crearRequest(tokenCoordinador), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = response.getBody();
+        assertThat(body).isNotNull();
+        java.util.List<?> data = (java.util.List<?>) body.get("data");
+        assertThat(data).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("debe_exportar_excel_reporte_zonas")
+    void debe_exportar_excel_reporte_zonas() throws Exception {
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                "/api/v1/reportes/zonas/exportar", HttpMethod.GET, crearRequest(tokenCoordinador), byte[].class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType().toString()).isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        
+        byte[] body = response.getBody();
+        assertThat(body).isNotEmpty();
+
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(body))) {
+            Sheet sheet = workbook.getSheet("Zonas");
+            assertThat(sheet).isNotNull();
+            Row titleRow = sheet.getRow(0);
+            assertThat(titleRow.getCell(0).getStringCellValue()).isEqualTo("Reporte de Disponibilidad de Zonas");
+        }
+    }
+
     private HttpEntity<Void> crearRequest(String bearerToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", bearerToken);

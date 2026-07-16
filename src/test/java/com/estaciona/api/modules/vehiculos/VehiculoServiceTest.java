@@ -7,7 +7,12 @@ import com.estaciona.api.modules.usuarios.UsuarioRepository;
 import com.estaciona.api.modules.usuarios.entity.Usuario;
 import com.estaciona.api.modules.vehiculos.dto.VehiculoRequest;
 import com.estaciona.api.modules.vehiculos.dto.VehiculoResponse;
+import com.estaciona.api.modules.vehiculos.dto.VehiculoUpdateRequest;
+import com.estaciona.api.modules.vehiculos.dto.VehiculoUpdateRequestDTO;
+import com.estaciona.api.modules.vehiculos.dto.VehiculoResponseDTO;
+import com.estaciona.api.modules.vehiculos.dto.VehiculoDesvinculadoResponseDTO;
 import com.estaciona.api.modules.vehiculos.entity.Vehiculo;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,7 +45,15 @@ class VehiculoServiceTest {
     @Mock
     private VehiculoFactory vehiculoFactory;
 
-    @InjectMocks
+    @Mock
+    private com.estaciona.api.modules.accesos.AccesoVehicularRepository accesoRepository;
+
+    @Mock
+    private List<com.estaciona.api.modules.vehiculos.eliminacion.VehiculoEliminacionValidationStrategy> eliminacionStrategies;
+
+    @Mock
+    private List<com.estaciona.api.modules.vehiculos.strategy.VehiculoUpdateValidationStrategy> updateStrategies;
+
     private VehiculoServiceImpl vehiculoService;
 
     private Usuario propietario;
@@ -73,6 +86,15 @@ class VehiculoServiceTest {
                 .marcaModelo("Toyota Corolla")
                 .color("Blanco")
                 .build();
+
+        vehiculoService = new VehiculoServiceImpl(
+                vehiculoRepository,
+                usuarioRepository,
+                vehiculoFactory,
+                accesoRepository,
+                eliminacionStrategies,
+                updateStrategies
+        );
     }
 
     @Test
@@ -150,7 +172,7 @@ class VehiculoServiceTest {
     void debe_retornar_lista_de_vehiculos_del_usuario_autenticado() {
         // Arrange
         var p1 = mock(com.estaciona.api.modules.vehiculos.dto.VehiculoResumenProjection.class);
-        when(vehiculoRepository.findByUsuarioIdAndEnabledTrue(usuarioId)).thenReturn(java.util.List.of(p1));
+        when(vehiculoRepository.findAllResumenByUsuarioId(usuarioId)).thenReturn(java.util.List.of(p1));
 
         // Act
         java.util.List<com.estaciona.api.modules.vehiculos.dto.VehiculoResumenProjection> result = 
@@ -158,14 +180,14 @@ class VehiculoServiceTest {
 
         // Assert
         assertThat(result).hasSize(1);
-        verify(vehiculoRepository, times(1)).findByUsuarioIdAndEnabledTrue(usuarioId);
+        verify(vehiculoRepository, times(1)).findAllResumenByUsuarioId(usuarioId);
     }
 
     @Test
     @DisplayName("debe_retornar_lista_vacia_si_usuario_no_tiene_vehiculos_sin_lanzar_excepcion")
     void debe_retornar_lista_vacia_si_usuario_no_tiene_vehiculos_sin_lanzar_excepcion() {
         // Arrange
-        when(vehiculoRepository.findByUsuarioIdAndEnabledTrue(usuarioId)).thenReturn(java.util.List.of());
+        when(vehiculoRepository.findAllResumenByUsuarioId(usuarioId)).thenReturn(java.util.List.of());
 
         // Act
         java.util.List<com.estaciona.api.modules.vehiculos.dto.VehiculoResumenProjection> result = 
@@ -173,7 +195,7 @@ class VehiculoServiceTest {
 
         // Assert
         assertThat(result).isEmpty();
-        verify(vehiculoRepository, times(1)).findByUsuarioIdAndEnabledTrue(usuarioId);
+        verify(vehiculoRepository, times(1)).findAllResumenByUsuarioId(usuarioId);
     }
 
     @Test
@@ -202,5 +224,53 @@ class VehiculoServiceTest {
         assertThatThrownBy(() -> vehiculoService.buscarPorPlaca("ABC123"))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Vehículo no encontrado con placa: ABC123");
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_vehiculo_exitosamente")
+    void debe_actualizar_vehiculo_exitosamente() {
+        // Arrange
+        UUID vehiculoId = vehiculoBuilt.getId();
+        VehiculoUpdateRequestDTO updateRequest = new VehiculoUpdateRequestDTO("auto", "Toyota Corolla Modificado", "Rojo");
+
+        when(vehiculoRepository.findById(vehiculoId)).thenReturn(Optional.of(vehiculoBuilt));
+        when(vehiculoRepository.save(any(Vehiculo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        java.util.Iterator<com.estaciona.api.modules.vehiculos.eliminacion.VehiculoEliminacionValidationStrategy> mockIterator = mock(java.util.Iterator.class);
+        when(mockIterator.hasNext()).thenReturn(false);
+        when(eliminacionStrategies.iterator()).thenReturn(mockIterator);
+
+        java.util.Iterator<com.estaciona.api.modules.vehiculos.strategy.VehiculoUpdateValidationStrategy> mockUpdateIterator = mock(java.util.Iterator.class);
+        when(mockUpdateIterator.hasNext()).thenReturn(false);
+        when(updateStrategies.iterator()).thenReturn(mockUpdateIterator);
+
+        // Act
+        VehiculoResponseDTO response = vehiculoService.actualizarVehiculo(vehiculoId, usuarioId, updateRequest);
+
+        // Assert
+        assertThat(response.marcaModelo()).isEqualTo("Toyota Corolla Modificado");
+        assertThat(response.color()).isEqualTo("Rojo");
+        verify(vehiculoRepository, times(1)).save(any(Vehiculo.class));
+    }
+
+    @Test
+    @DisplayName("debe_eliminar_vehiculo_exitosamente")
+    void debe_eliminar_vehiculo_exitosamente() {
+        // Arrange
+        UUID vehiculoId = vehiculoBuilt.getId();
+        when(vehiculoRepository.findById(vehiculoId)).thenReturn(Optional.of(vehiculoBuilt));
+        when(vehiculoRepository.save(any(Vehiculo.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        java.util.Iterator<com.estaciona.api.modules.vehiculos.eliminacion.VehiculoEliminacionValidationStrategy> mockIterator = mock(java.util.Iterator.class);
+        when(mockIterator.hasNext()).thenReturn(false);
+        when(eliminacionStrategies.iterator()).thenReturn(mockIterator);
+
+        // Act
+        VehiculoDesvinculadoResponseDTO response = vehiculoService.eliminarVehiculo(vehiculoId, usuarioId);
+
+        // Assert
+        assertThat(vehiculoBuilt.isEnabled()).isFalse();
+        verify(vehiculoRepository, times(1)).save(vehiculoBuilt);
+        assertThat(response.mensaje()).contains("desvinculado");
     }
 }

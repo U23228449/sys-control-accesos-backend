@@ -2,6 +2,8 @@
 
 Backend RESTful para el control de ingreso y salida de vehículos en el campus universitario. Construido con **Java 21**, **Spring Boot 3.5**, **Spring Security (JWT)** y **PostgreSQL 15**.
 
+> **Estado del proyecto**: ✅ **100% Completado** — 16 Historias de Usuario implementadas · **161 tests en verde** (79 unitarios + 82 integración)
+
 ---
 
 ## Tabla de Contenidos
@@ -73,14 +75,16 @@ Luego usa `estaciona_user` y su contraseña en el `.env`.
 
 ### Paso 3.3 — ¿El esquema y los datos iniciales?
 
-**No hace falta ejecutar nada manualmente.** Al iniciar la aplicación por primera vez, **Flyway** aplica automáticamente las 4 migraciones en orden:
+**No hace falta ejecutar nada manualmente.** Al iniciar la aplicación por primera vez, **Flyway** aplica automáticamente todas las migraciones en orden:
 
 | Migración | Descripción |
 |---|---|
-| `V1__init_schema.sql` | Crea todas las tablas (`usuarios`, `vehiculos`, `accesos_vehiculares`, etc.) |
-| `V2__seed_data.sql` | Inserta los roles y el usuario administrador por defecto |
-| `V3__auditoria_triggers.sql` | Crea los triggers PL/pgSQL para auditoría automática |
-| `V4__reportes_indices_vista.sql` | Crea índices compuestos y la vista de reportes |
+| `V1__init_schema.sql` | Crea todas las tablas (`usuarios`, `vehiculos`, `accesos_vehiculares`, `zonas_estacionamiento`, etc.) |
+| `V2__seed_data.sql` | Inserta los roles, el campus y el usuario administrador por defecto |
+| `V3__auditoria_triggers.sql` | Crea triggers PL/pgSQL append-only para auditoría automática |
+| `V4__reportes_indices_vista.sql` | Crea índices compuestos y la vista `vw_reporte_accesos_vehiculares` |
+| `V5__configuraciones.sql` | Crea la tabla `configuraciones` e inserta los parámetros del sistema |
+| `V6__reporte_zonas_vista.sql` | Crea la vista `vw_reporte_zonas_disponibilidad` para el reporte de zonas |
 
 > **Importante**: Si PostgreSQL no está corriendo cuando inicies la app, verás el error `Connection refused`. Asegúrate de que el servicio de PostgreSQL esté activo antes de ejecutar `./mvnw spring-boot:run`.
 
@@ -208,7 +212,7 @@ Respuesta esperada:
 
 > Los tests de integración requieren **Docker corriendo** (Testcontainers levanta PostgreSQL automáticamente en un contenedor temporal).
 
-**Ejecutar toda la suite (109 tests):**
+**Ejecutar toda la suite (161 tests):**
 ```powershell
 # Windows
 .\mvnw.cmd test
@@ -219,17 +223,18 @@ Respuesta esperada:
 
 **Ejecutar solo los tests unitarios (rápidos, sin Docker):**
 ```powershell
-.\mvnw.cmd test "-Dtest=*Test"
+.\mvnw.cmd test "-Dtest=!*IT" -DfailIfNoTests=false
 ```
 
 **Ejecutar solo los tests de integración:**
 ```powershell
-.\mvnw.cmd test "-Dtest=*IT"
+.\mvnw.cmd test "-Dtest=*IT" -DfailIfNoTests=false
 ```
 
 **Resultado esperado:**
 ```
-Tests run: 109, Failures: 0, Errors: 0, Skipped: 0
+[Unitarios]   Tests run: 79,  Failures: 0, Errors: 0, Skipped: 0
+[Integración] Tests run: 82,  Failures: 0, Errors: 0, Skipped: 0
 BUILD SUCCESS
 ```
 
@@ -340,18 +345,131 @@ Authorization: Bearer <token_seguridad>
 ```
 > Reemplaza `{id}` con el UUID devuelto al registrar el ingreso.
 
+#### Actualizar Mi Perfil *(rol: USUARIO)*
+```
+PUT /api/v1/usuarios/me
+Authorization: Bearer <token_usuario>
+
+{
+  "nombreCompleto": "Ana Torres",
+  "correo": "ana@unicampus.edu.pe",
+  "documento": "USR002",
+  "passwordActual": "Seguro123!",
+  "passwordNuevo": "NuevoPass456!"
+}
+```
+
+#### Cambiar Rol de un Usuario *(rol: ADMINISTRADOR)*
+```
+PUT /api/v1/usuarios/{id}/rol
+Authorization: Bearer <token_admin>
+
+{ "rolId": 3 }
+```
+
+#### Cambiar Estado de un Usuario *(rol: ADMINISTRADOR)*
+```
+PATCH /api/v1/usuarios/{id}/estado
+Authorization: Bearer <token_admin>
+
+{ "enabled": false }
+```
+
+#### Consultar Usuarios (paginado con filtros) *(rol: ADMINISTRADOR)*
+```
+GET /api/v1/usuarios?rol=USUARIO&enabled=true&page=0&size=10
+Authorization: Bearer <token_admin>
+```
+
+#### Eliminar Usuario (soft-delete) *(rol: ADMINISTRADOR)*
+```
+DELETE /api/v1/usuarios/{id}
+Authorization: Bearer <token_admin>
+```
+
+#### Actualizar Zona *(rol: ADMINISTRADOR)*
+```
+PUT /api/v1/zonas-estacionamiento/{id}
+Authorization: Bearer <token_admin>
+
+{
+  "nombre": "Zona B Ampliada",
+  "ubicacion": "Pabellón B",
+  "tipo": "autos",
+  "aforoMaximo": 50
+}
+```
+
+#### Cambiar Estado de Zona *(rol: ADMINISTRADOR)*
+```
+PATCH /api/v1/zonas-estacionamiento/{id}/estado
+Authorization: Bearer <token_admin>
+
+{ "estado": "cerrada" }
+```
+
+#### Consultar Zonas (paginado con filtros) *(rol: ADMINISTRADOR)*
+```
+GET /api/v1/zonas-estacionamiento?campus=1&estado=activa&page=0&size=10
+Authorization: Bearer <token_admin>
+```
+
+#### Actualizar Vehículo *(propietario autenticado)*
+```
+PUT /api/v1/vehiculos/{id}
+Authorization: Bearer <token_usuario>
+
+{
+  "tipo": "auto",
+  "marcaModelo": "Toyota Yaris 2023",
+  "color": "Rojo"
+}
+```
+
+#### Eliminar Vehículo (soft-delete) *(propietario autenticado)*
+```
+DELETE /api/v1/vehiculos/{id}
+Authorization: Bearer <token_usuario>
+```
+
+#### Ver Configuraciones del Sistema *(rol: ADMINISTRADOR)*
+```
+GET /api/v1/configuraciones
+Authorization: Bearer <token_admin>
+```
+
+#### Actualizar Parámetro del Sistema *(rol: ADMINISTRADOR)*
+```
+PATCH /api/v1/configuraciones/{clave}
+Authorization: Bearer <token_admin>
+
+{ "valor": "90" }
+```
+
 #### Ver Reporte de Accesos *(rol: COORDINADOR_SEGURIDAD)*
 ```
 GET /api/v1/reportes/accesos?page=0&size=10
 Authorization: Bearer <token_coordinador>
 ```
 
-#### Exportar Reporte a Excel *(rol: COORDINADOR_SEGURIDAD)*
+#### Exportar Reporte de Accesos a Excel *(rol: COORDINADOR_SEGURIDAD)*
 ```
 GET /api/v1/reportes/accesos/exportar
 Authorization: Bearer <token_coordinador>
 ```
 > En Postman: **Send → Save Response → Save to a file** y guarda con extensión `.xlsx`.
+
+#### Ver Reporte de Disponibilidad de Zonas *(rol: ADMINISTRADOR)*
+```
+GET /api/v1/reportes/zonas?campusId=1
+Authorization: Bearer <token_admin>
+```
+
+#### Exportar Reporte de Zonas a Excel *(rol: ADMINISTRADOR)*
+```
+GET /api/v1/reportes/zonas/exportar
+Authorization: Bearer <token_admin>
+```
 
 ---
 
@@ -374,10 +492,10 @@ Authorization: Bearer <token_coordinador>
 
 | Rol | `rolId` | Permisos |
 |---|---|---|
-| `ADMINISTRADOR` | `1` | Registrar usuarios, ver todo |
-| `COORDINADOR_SEGURIDAD` | `2` | Generar y exportar reportes de acceso |
+| `ADMINISTRADOR` | `1` | Registrar/actualizar/eliminar usuarios, gestionar zonas, ver configuraciones del sistema, reporte de zonas |
+| `COORDINADOR_SEGURIDAD` | `2` | Generar y exportar reportes de accesos vehiculares |
 | `SEGURIDAD` | `3` | Registrar ingresos/salidas, buscar vehículos por placa |
-| `USUARIO` | `4` | Registrar y consultar sus propios vehículos |
+| `USUARIO` | `4` | Registrar/actualizar/eliminar sus propios vehículos, editar su propio perfil |
 
 **Usuario administrador creado por el seed inicial:**
 - Correo: `admin@unicampus.edu.pe`
@@ -395,22 +513,44 @@ src/
 │   │   ├── security/        # Filtro JWT, token provider, RBAC utils
 │   │   ├── common/          # Excepciones globales, DTO ApiResponse
 │   │   └── modules/
-│   │       ├── auth/        # Login y generación de JWT
-│   │       ├── usuarios/    # Registro y gestión de usuarios
-│   │       ├── roles/       # Entidad Rol (seed en BD)
-│   │       ├── vehiculos/   # Registro y consulta de vehículos
-│   │       ├── campus/      # Campus universitarios
-│   │       ├── zonas/       # Zonas de estacionamiento
-│   │       ├── accesos/     # Control de ingreso/salida vehicular
-│   │       ├── auditoria/   # Log de auditoría automático (triggers)
-│   │       └── reportes/    # Reportes paginados y exportación Excel
+│   │       ├── auth/                # Login y generación de JWT
+│   │       ├── usuarios/            # Registro, actualización, eliminación
+│   │       │   ├── update/          # Strategies de actualización (Strategy + Factory)
+│   │       │   ├── eliminacion/     # Strategies de eliminación soft-delete
+│   │       │   ├── spec/            # Specifications para filtros dinámicos
+│   │       │   └── dto/             # DTOs de request y response
+│   │       ├── roles/               # Entidad Rol (seed en BD)
+│   │       ├── vehiculos/           # Registro, actualización, eliminación
+│   │       │   └── eliminacion/     # Strategies de eliminación
+│   │       ├── campus/              # Campus universitarios
+│   │       ├── zonas/               # Zonas de estacionamiento
+│   │       │   ├── update/          # Strategies de actualización (Strategy + Factory)
+│   │       │   └── spec/            # Specifications para filtros dinámicos
+│   │       ├── accesos/             # Control de ingreso/salida vehicular
+│   │       │   ├── validation/      # 3 strategies de validación de acceso
+│   │       │   └── spec/            # Specifications para historial filtrable
+│   │       ├── auditoria/           # Log de auditoría automático (triggers)
+│   │       ├── configuraciones/     # Parámetros del sistema con Strategy + Observer
+│   │       │   ├── strategy/        # 4 strategies de validación por tipo
+│   │       │   └── event/           # ConfiguracionCambiadaEvent (Observer)
+│   │       └── reportes/            # Reportes paginados y exportación Excel/PDF
+│   │           ├── excel/           # Builder de Excel (Builder Pattern)
+│   │           └── strategy/        # ExcelExportacionStrategy / ZonaExcelStrategy
 │   └── resources/
-│       ├── application.yml  # Configuración de Spring Boot
-│       └── db/migration/    # Scripts Flyway (V1 a V4)
+│       ├── application.yml          # Configuración de Spring Boot
+│       └── db/migration/            # Scripts Flyway (V1 a V6)
 └── test/
     └── java/com/estaciona/api/
-        ├── support/         # AbstractIntegrationTest (Testcontainers)
-        └── modules/         # Tests unitarios (*Test) e integración (*IT)
+        ├── support/                 # AbstractIntegrationTest (Testcontainers)
+        └── modules/                 # Tests unitarios (*Test) e integración (*IT)
+            ├── usuarios/            # UsuarioServiceTest + UsuarioControllerIT
+            ├── vehiculos/           # VehiculoServiceTest + VehiculoControllerIT
+            ├── zonas/               # ZonaServiceTest + ZonaControllerIT
+            ├── accesos/             # AccesoVehicularServiceTest + AccesoVehicularControllerIT
+            ├── configuraciones/     # ConfiguracionServiceTest + ConfiguracionControllerIT
+            ├── reportes/            # ReporteAccesoServiceTest + ReporteControllerIT
+            ├── auditoria/           # AuditoriaServiceTest + AuditoriaControllerIT
+            └── auth/                # AuthServiceTest + AuthControllerIT
 ```
 
 ---
@@ -476,12 +616,39 @@ Luego reinicia la aplicación y Flyway aplicará las migraciones desde cero.
 | Lenguaje | Java 21 |
 | Framework | Spring Boot 3.5 |
 | Seguridad | Spring Security + JJWT 0.12.6 (HS256) |
-| Persistencia | Spring Data JPA + Hibernate 6 |
+| Persistencia | Spring Data JPA + Hibernate 6 + JpaSpecificationExecutor |
 | Base de datos | PostgreSQL 15 |
-| Migraciones | Flyway |
+| Migraciones | Flyway (6 scripts: V1 → V6) |
 | Hash de contraseñas | BCrypt (strength 12) |
 | Reportes Excel | Apache POI 5.3.0 (SXSSFWorkbook) |
 | Documentación API | SpringDoc OpenAPI / Swagger UI |
-| Tests unitarios | JUnit 5 + Mockito |
-| Tests integración | JUnit 5 + Spring Boot Test + Testcontainers |
+| Tests unitarios | JUnit 5 + Mockito · **79 tests** |
+| Tests integración | JUnit 5 + Spring Boot Test + Testcontainers · **82 tests** |
+| Patrones de diseño | Strategy, Factory Method, Builder, Observer, Repository, Template Method |
 | Build | Maven (con wrapper `./mvnw`) |
+
+---
+
+## Historias de Usuario Implementadas
+
+| HU | Descripción | Fases |
+|---|---|---|
+| HU-001 | Iniciar Sesión (JWT) | 1-3 |
+| HU-002 | Registrar Usuario | 1-3 |
+| HU-003 | Consultar Usuarios (filtros + paginación) | 5 |
+| HU-004 | Actualizar Usuario (perfil propio, rol, estado) | 4 |
+| HU-005 | Eliminar Usuario (soft-delete) | 6 |
+| HU-006 | Registrar Vehículo | 1-3 |
+| HU-007 | Buscar Vehículo por Placa | 1-3 |
+| HU-008 | Actualizar Vehículo | 6 |
+| HU-009 | Eliminar Vehículo (soft-delete) | 6 |
+| HU-010 | Gestionar Zonas (crear, listar) | 1-3 |
+| HU-011 | Consultar Zonas (filtros + paginación) | 5 |
+| HU-012 | Actualizar Zona (datos + estado) | 4 |
+| HU-013 | Registrar Ingreso Vehicular | 1-3 |
+| HU-014 | Registrar Salida Vehicular | 1-3 |
+| HU-015 | Consultar Historial de Accesos (filtros + paginación) | 5 |
+| HU-016 | Auditoría automática (triggers append-only) | 1-3 |
+| HU-017 | Configuraciones del Sistema (Observer) | 6 |
+| HU-018 | Reporte de Accesos (Excel + PDF) | 1-3 |
+| HU-019 | Reporte de Zonas (Excel) | 4 |

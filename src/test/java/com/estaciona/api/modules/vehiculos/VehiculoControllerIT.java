@@ -1,11 +1,13 @@
 package com.estaciona.api.modules.vehiculos;
 
 import com.estaciona.api.support.AbstractIntegrationTest;
+import com.estaciona.api.modules.vehiculos.entity.Vehiculo;
+import com.estaciona.api.modules.zonas.entity.Zona;
+import com.estaciona.api.modules.usuarios.entity.Usuario;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
-
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +35,15 @@ class VehiculoControllerIT extends AbstractIntegrationTest {
 
     @Autowired
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private com.estaciona.api.modules.accesos.AccesoVehicularRepository accesoVehicularRepository;
+
+    @Autowired
+    private com.estaciona.api.modules.zonas.ZonaRepository zonaRepository;
+
+    @Autowired
+    private com.estaciona.api.modules.campus.CampusRepository campusRepository;
 
     private static final String URL = "/api/v1/vehiculos";
     private String tokenAdmin;
@@ -375,5 +386,155 @@ class VehiculoControllerIT extends AbstractIntegrationTest {
 
         // Assert
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_vehiculo_propio_ok")
+    void debe_actualizar_vehiculo_propio_ok() {
+        // Arrange
+        String placa = "UPDT" + (System.currentTimeMillis() % 10000);
+        Vehiculo vehiculo = Vehiculo.builder()
+                .placa(placa)
+                .usuario(propietario)
+                .tipo("auto")
+                .marcaModelo("Toyota Yaris")
+                .color("Blanco")
+                .enabled(true)
+                .build();
+        vehiculoRepository.saveAndFlush(vehiculo);
+
+        var body = Map.of(
+                "tipo", "auto",
+                "marcaModelo", "Toyota Yaris Modificado",
+                "color", "Gris"
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + vehiculo.getId(), HttpMethod.PUT, crearRequest(body, tokenUsuario), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+        assertThat(data.get("marcaModelo")).isEqualTo("Toyota Yaris Modificado");
+        assertThat(data.get("color")).isEqualTo("Gris");
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_403_si_actualiza_vehiculo_ajeno")
+    void debe_lanzar_403_si_actualiza_vehiculo_ajeno() {
+        // Arrange
+        String placa = "AJEN" + (System.currentTimeMillis() % 10000);
+        Vehiculo vehiculo = Vehiculo.builder()
+                .placa(placa)
+                .usuario(propietario)
+                .tipo("auto")
+                .marcaModelo("Toyota")
+                .color("Azul")
+                .enabled(true)
+                .build();
+        vehiculoRepository.saveAndFlush(vehiculo);
+
+        var body = Map.of(
+                "tipo", "auto",
+                "marcaModelo", "Toyota Modificado",
+                "color", "Rojo"
+        );
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + vehiculo.getId(), HttpMethod.PUT, crearRequest(body, tokenAdmin), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("debe_eliminar_vehiculo_soft_delete_ok")
+    void debe_eliminar_vehiculo_soft_delete_ok() {
+        // Arrange
+        String placa = "DELT" + (System.currentTimeMillis() % 10000);
+        Vehiculo vehiculo = Vehiculo.builder()
+                .placa(placa)
+                .usuario(propietario)
+                .tipo("auto")
+                .marcaModelo("Nissan Sentra")
+                .color("Negro")
+                .enabled(true)
+                .build();
+        vehiculoRepository.saveAndFlush(vehiculo);
+
+        // Act
+        ResponseEntity<Void> response = restTemplate.exchange(
+                URL + "/" + vehiculo.getId(), HttpMethod.DELETE, crearRequest(null, tokenUsuario), Void.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Verificar en BD
+        Vehiculo vDb = vehiculoRepository.findById(vehiculo.getId()).orElseThrow();
+        assertThat(vDb.isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("debe_lanzar_422_si_vehiculo_tiene_acceso_activo")
+    void debe_lanzar_422_si_vehiculo_tiene_acceso_activo() {
+        // Arrange
+        com.estaciona.api.modules.campus.entity.Campus campus = new com.estaciona.api.modules.campus.entity.Campus();
+        campus.setNombre("Campus Sur");
+        campus.setEnabled(true);
+        campusRepository.saveAndFlush(campus);
+
+        Zona zona = Zona.builder()
+                .campus(campus)
+                .nombre("Zona Sur A")
+                .tipo("interno")
+                .aforoMaximo(10)
+                .aforoDisponible(9)
+                .estado("activa")
+                .enabled(true)
+                .build();
+        zonaRepository.saveAndFlush(zona);
+
+        String placa = "ACTV" + (System.currentTimeMillis() % 10000);
+        Vehiculo vehiculo = Vehiculo.builder()
+                .placa(placa)
+                .usuario(propietario)
+                .tipo("auto")
+                .marcaModelo("Kia Rio")
+                .color("Rojo")
+                .enabled(true)
+                .build();
+        vehiculoRepository.saveAndFlush(vehiculo);
+
+        com.estaciona.api.modules.roles.entity.Rol rolSeg = rolRepository.findByNombre("SEGURIDAD").orElseThrow();
+        Usuario guardia = Usuario.builder()
+                .rol(rolSeg)
+                .nombreCompleto("Guardia Acceso Activo")
+                .correo("guardia.activo@unicampus.edu.pe")
+                .documento("SEC8888")
+                .passwordHash(passwordEncoder.encode("Guardia123!"))
+                .enabled(true)
+                .build();
+        usuarioRepository.saveAndFlush(guardia);
+
+        com.estaciona.api.modules.accesos.entity.AccesoVehicular acceso = com.estaciona.api.modules.accesos.entity.AccesoVehicular.builder()
+                .usuario(propietario)
+                .vehiculo(vehiculo)
+                .zona(zona)
+                .guardiaEntrada(guardia)
+                .horaIngreso(java.time.OffsetDateTime.now())
+                .estado("en_curso")
+                .enabled(true)
+                .build();
+        accesoVehicularRepository.saveAndFlush(acceso);
+
+        // Act
+        ResponseEntity<Map> response = restTemplate.exchange(
+                URL + "/" + vehiculo.getId(), HttpMethod.DELETE, crearRequest(null, tokenUsuario), Map.class);
+
+        // Assert
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
     }
 }

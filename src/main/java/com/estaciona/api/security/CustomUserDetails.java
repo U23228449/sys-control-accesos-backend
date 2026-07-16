@@ -32,7 +32,18 @@ public class CustomUserDetails implements UserDetails {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Spring Security requiere el prefijo ROLE_ para hasRole(...)
-        return List.of(new SimpleGrantedAuthority("ROLE_" + usuario.getRol().getNombre()));
+        String rolNombre = usuario.getRol().getNombre();
+        if ("USUARIO".equals(rolNombre) && usuario.getTipoUsuario() != null) {
+            String tipo = usuario.getTipoUsuario();
+            if ("alumno".equalsIgnoreCase(tipo)) {
+                rolNombre = "ESTUDIANTE";
+            } else if ("docente".equalsIgnoreCase(tipo)) {
+                rolNombre = "PROFESOR";
+            } else if ("personal_admin".equalsIgnoreCase(tipo)) {
+                rolNombre = "PERSONAL_ADMINISTRATIVO";
+            }
+        }
+        return List.of(new SimpleGrantedAuthority("ROLE_" + rolNombre));
     }
 
     @Override

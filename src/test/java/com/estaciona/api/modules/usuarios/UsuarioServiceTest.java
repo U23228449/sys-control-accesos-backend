@@ -7,17 +7,29 @@ import com.estaciona.api.modules.roles.RolRepository;
 import com.estaciona.api.modules.roles.entity.Rol;
 import com.estaciona.api.modules.usuarios.dto.UsuarioRequest;
 import com.estaciona.api.modules.usuarios.dto.UsuarioResponse;
+import com.estaciona.api.modules.usuarios.dto.UsuarioFiltroRequest;
+import com.estaciona.api.modules.usuarios.dto.UsuarioResumenProjection;
+import com.estaciona.api.modules.usuarios.dto.UsuarioUpdateEstadoRequest;
+import com.estaciona.api.modules.usuarios.dto.UsuarioUpdateMeRequest;
+import com.estaciona.api.modules.usuarios.dto.UsuarioUpdateRolRequest;
+import com.estaciona.api.modules.usuarios.eliminacion.UsuarioEliminacionValidationStrategy;
 import com.estaciona.api.modules.usuarios.entity.Usuario;
+import com.estaciona.api.modules.usuarios.update.UsuarioUpdateCommand;
+import com.estaciona.api.modules.usuarios.update.UsuarioUpdateCommandFactory;
+import com.estaciona.api.modules.usuarios.update.UsuarioUpdateValidationStrategy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -44,7 +56,15 @@ class UsuarioServiceTest {
     @Mock
     private UsuarioFactory usuarioFactory;
 
-    @InjectMocks
+    @Mock
+    private UsuarioUpdateCommandFactory commandFactory;
+
+    @Mock
+    private UsuarioUpdateValidationStrategy updateStrategy;
+
+    @Mock
+    private UsuarioEliminacionValidationStrategy eliminacionStrategy;
+
     private UsuarioServiceImpl usuarioService;
 
     private Rol rolUsuario;
@@ -54,6 +74,16 @@ class UsuarioServiceTest {
 
     @BeforeEach
     void setUp() {
+        usuarioService = new UsuarioServiceImpl(
+                usuarioRepository,
+                rolRepository,
+                passwordEncoder,
+                usuarioFactory,
+                List.of(updateStrategy),
+                commandFactory,
+                List.of(eliminacionStrategy)
+        );
+
         rolUsuario = new Rol();
         rolUsuario.setId(4);
         rolUsuario.setNombre("USUARIO");
@@ -182,5 +212,144 @@ class UsuarioServiceTest {
                 .hasMessageContaining("El tipo de usuario es obligatorio para el rol USUARIO.");
 
         verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_perfil_propio_sin_password_nuevo")
+    void debe_actualizar_perfil_propio_sin_password_nuevo() {
+        // Arrange
+        UUID usuarioId = usuarioBuilt.getId();
+        UsuarioUpdateMeRequest request = new UsuarioUpdateMeRequest(
+                "Juan Pérez Modificado", "juan.mod@unicampus.edu.pe", "12345678", null, null);
+
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuarioBuilt));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        UsuarioResponse response = usuarioService.actualizarMe(usuarioId, request);
+
+        // Assert
+        assertThat(response.nombreCompleto()).isEqualTo("Juan Pérez Modificado");
+        assertThat(response.correo()).isEqualTo("juan.mod@unicampus.edu.pe");
+        assertThat(usuarioBuilt.getPasswordHash()).isEqualTo("encodedPassword"); // no cambió
+        verify(updateStrategy, times(1)).validar(eq(usuarioBuilt), eq(request), any());
+        verify(usuarioRepository, times(1)).save(usuarioBuilt);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_perfil_propio_con_password_nuevo")
+    void debe_actualizar_perfil_propio_con_password_nuevo() {
+        // Arrange
+        UUID usuarioId = usuarioBuilt.getId();
+        UsuarioUpdateMeRequest request = new UsuarioUpdateMeRequest(
+                "Juan Pérez Modificado", "juan.mod@unicampus.edu.pe", "12345678", "password123", "newPassword123");
+
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuarioBuilt));
+        when(passwordEncoder.encode("newPassword123")).thenReturn("newEncodedPassword");
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        UsuarioResponse response = usuarioService.actualizarMe(usuarioId, request);
+
+        // Assert
+        assertThat(response.nombreCompleto()).isEqualTo("Juan Pérez Modificado");
+        assertThat(usuarioBuilt.getPasswordHash()).isEqualTo("newEncodedPassword"); // cambió
+        verify(usuarioRepository, times(1)).save(usuarioBuilt);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_rol_de_usuario_como_administrador")
+    void debe_actualizar_rol_de_usuario_como_administrador() {
+        // Arrange
+        UUID usuarioId = usuarioBuilt.getId();
+        UUID adminId = UUID.randomUUID();
+        UsuarioUpdateRolRequest request = new UsuarioUpdateRolRequest(1); // rol ADMINISTRADOR
+
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuarioBuilt));
+        when(rolRepository.findById(1)).thenReturn(Optional.of(rolAdmin));
+        
+        UsuarioUpdateCommand mockCommand = mock(UsuarioUpdateCommand.class);
+        when(commandFactory.crearComandoRol(usuarioBuilt, rolAdmin)).thenReturn(mockCommand);
+        doAnswer(invocation -> {
+            usuarioBuilt.setRol(rolAdmin);
+            return null;
+        }).when(mockCommand).apply(usuarioBuilt);
+        
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        UsuarioResponse response = usuarioService.actualizarRol(usuarioId, request, adminId);
+
+        // Assert
+        assertThat(response.rol()).isEqualTo("ADMINISTRADOR");
+        verify(mockCommand, times(1)).apply(usuarioBuilt);
+        verify(usuarioRepository, times(1)).save(usuarioBuilt);
+    }
+
+    @Test
+    @DisplayName("debe_actualizar_estado_de_usuario_como_administrador")
+    void debe_actualizar_estado_de_usuario_como_administrador() {
+        // Arrange
+        UUID usuarioId = usuarioBuilt.getId();
+        UUID adminId = UUID.randomUUID();
+        UsuarioUpdateEstadoRequest request = new UsuarioUpdateEstadoRequest(false); // desactivar
+
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuarioBuilt));
+        
+        UsuarioUpdateCommand mockCommand = mock(UsuarioUpdateCommand.class);
+        when(commandFactory.crearComandoEstado(usuarioBuilt, false, adminId)).thenReturn(mockCommand);
+        doAnswer(invocation -> {
+            usuarioBuilt.setEnabled(false);
+            return null;
+        }).when(mockCommand).apply(usuarioBuilt);
+        
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        UsuarioResponse response = usuarioService.actualizarEstado(usuarioId, request, adminId);
+
+        // Assert
+        assertThat(response.enabled()).isFalse();
+        verify(mockCommand, times(1)).apply(usuarioBuilt);
+        verify(usuarioRepository, times(1)).save(usuarioBuilt);
+    }
+
+    @Test
+    @DisplayName("debe_eliminar_usuario_soft_delete")
+    void debe_eliminar_usuario_soft_delete() {
+        // Arrange
+        UUID usuarioId = usuarioBuilt.getId();
+        UUID adminId = UUID.randomUUID();
+
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuarioBuilt));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        usuarioService.eliminarUsuario(usuarioId, adminId);
+
+        // Assert
+        assertThat(usuarioBuilt.isEnabled()).isFalse();
+        verify(eliminacionStrategy, times(1)).validar(usuarioBuilt, adminId, usuarioRepository);
+        verify(usuarioRepository, times(1)).save(usuarioBuilt);
+    }
+
+    @Test
+    @DisplayName("debe_consultar_usuarios_filtrados")
+    void debe_consultar_usuarios_filtrados() {
+        // Arrange
+        UsuarioFiltroRequest filtro = new UsuarioFiltroRequest("USUARIO", true, "Juan");
+        Pageable pageable = PageRequest.of(0, 10);
+        
+        Page<Usuario> page = new PageImpl<>(List.of(usuarioBuilt));
+        when(usuarioRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class))).thenReturn(page);
+
+        // Act
+        Page<UsuarioResumenProjection> result = usuarioService.consultarUsuarios(filtro, pageable);
+
+        // Assert
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getId()).isEqualTo(usuarioBuilt.getId());
+        assertThat(result.getContent().get(0).getNombreCompleto()).isEqualTo("Juan Pérez");
+        verify(usuarioRepository, times(1)).findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class));
     }
 }
