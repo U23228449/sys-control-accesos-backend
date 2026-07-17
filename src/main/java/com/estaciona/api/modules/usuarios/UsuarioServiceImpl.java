@@ -43,6 +43,8 @@ public class UsuarioServiceImpl implements UsuarioService {
     private final List<UsuarioUpdateValidationStrategy> updateStrategies;
     private final UsuarioUpdateCommandFactory commandFactory;
     private final List<UsuarioEliminacionValidationStrategy> eliminacionStrategies;
+    private final com.estaciona.api.modules.campus.CampusRepository campusRepository;
+    private final com.estaciona.api.modules.zonas.ZonaRepository zonaRepository;
 
     public UsuarioServiceImpl(UsuarioRepository usuarioRepository,
                               RolRepository rolRepository,
@@ -51,6 +53,19 @@ public class UsuarioServiceImpl implements UsuarioService {
                               List<UsuarioUpdateValidationStrategy> updateStrategies,
                               UsuarioUpdateCommandFactory commandFactory,
                               List<UsuarioEliminacionValidationStrategy> eliminacionStrategies) {
+        this(usuarioRepository, rolRepository, passwordEncoder, usuarioFactory, updateStrategies, commandFactory, eliminacionStrategies, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public UsuarioServiceImpl(UsuarioRepository usuarioRepository,
+                              RolRepository rolRepository,
+                              PasswordEncoder passwordEncoder,
+                              UsuarioFactory usuarioFactory,
+                              List<UsuarioUpdateValidationStrategy> updateStrategies,
+                              UsuarioUpdateCommandFactory commandFactory,
+                              List<UsuarioEliminacionValidationStrategy> eliminacionStrategies,
+                              com.estaciona.api.modules.campus.CampusRepository campusRepository,
+                              com.estaciona.api.modules.zonas.ZonaRepository zonaRepository) {
         this.usuarioRepository = usuarioRepository;
         this.rolRepository = rolRepository;
         this.passwordEncoder = passwordEncoder;
@@ -58,6 +73,8 @@ public class UsuarioServiceImpl implements UsuarioService {
         this.updateStrategies = updateStrategies;
         this.commandFactory = commandFactory;
         this.eliminacionStrategies = eliminacionStrategies;
+        this.campusRepository = campusRepository;
+        this.zonaRepository = zonaRepository;
     }
 
     @Override
@@ -81,8 +98,36 @@ public class UsuarioServiceImpl implements UsuarioService {
         // 4. Hashear password
         String passwordHash = passwordEncoder.encode(request.password());
 
-        // 5. Crear entidad vía Factory
-        Usuario usuario = usuarioFactory.crear(request, rol, passwordHash);
+        // 4.5. Resolver Campus y Zona de ser el caso
+        com.estaciona.api.modules.campus.entity.Campus campus = null;
+        if (request.campusId() != null) {
+            campus = campusRepository.findById(request.campusId())
+                .filter(com.estaciona.api.modules.campus.entity.Campus::isEnabled)
+                .orElseThrow(() -> new ResourceNotFoundException("Campus", request.campusId()));
+        }
+        com.estaciona.api.modules.zonas.entity.Zona zona = null;
+        if (request.zonaId() != null) {
+            zona = zonaRepository.findById(request.zonaId())
+                .filter(com.estaciona.api.modules.zonas.entity.Zona::isEnabled)
+                .orElseThrow(() -> new ResourceNotFoundException("Zona de estacionamiento", request.zonaId()));
+        }
+
+        // 4.6. Validar que no haya ya un guardia de la misma función asignado a la zona
+        if ("SEGURIDAD".equalsIgnoreCase(rol.getNombre()) && zona != null && request.tipoGuardia() != null) {
+            String tipoG = request.tipoGuardia().trim().toLowerCase();
+            if (usuarioRepository.existsByZonaIdAndTipoGuardiaIgnoreCaseAndEnabledTrue(zona.getId(), tipoG)) {
+                throw new com.estaciona.api.common.exception.BusinessRuleException(
+                        "La zona '" + zona.getNombre() + "' ya cuenta con un guardia de " + tipoG + " asignado.");
+            }
+        }
+
+        // 5. Crear entidad vía Factory (llamada condicional para preservar compatibilidad con Mockito en tests)
+        Usuario usuario;
+        if (campus == null && zona == null) {
+            usuario = usuarioFactory.crear(request, rol, passwordHash);
+        } else {
+            usuario = usuarioFactory.crear(request, rol, passwordHash, campus, zona);
+        }
 
         // 6. Persistir en la base de datos
         Usuario usuarioPersistido = usuarioRepository.save(usuario);
@@ -194,7 +239,10 @@ public class UsuarioServiceImpl implements UsuarioService {
             String rolNombre,
             String tipoUsuario,
             Boolean enabled,
-            java.time.Instant createdAt
+            java.time.Instant createdAt,
+            Integer campusId,
+            Integer zonaId,
+            String tipoGuardia
     ) implements UsuarioResumenProjection {
         @Override public UUID getId() { return id; }
         @Override public String getNombreCompleto() { return nombreCompleto; }
@@ -204,6 +252,9 @@ public class UsuarioServiceImpl implements UsuarioService {
         @Override public String getTipoUsuario() { return tipoUsuario; }
         @Override public Boolean getEnabled() { return enabled; }
         @Override public java.time.Instant getCreatedAt() { return createdAt; }
+        @Override public Integer getCampusId() { return campusId; }
+        @Override public Integer getZonaId() { return zonaId; }
+        @Override public String getTipoGuardia() { return tipoGuardia; }
     }
 
     @Override
@@ -229,7 +280,10 @@ public class UsuarioServiceImpl implements UsuarioService {
                 usuario.getRol().getNombre(),
                 usuario.getTipoUsuario(),
                 usuario.isEnabled(),
-                usuario.getCreatedAt()
+                usuario.getCreatedAt(),
+                usuario.getCampus() != null ? usuario.getCampus().getId() : null,
+                usuario.getZona() != null ? usuario.getZona().getId() : null,
+                usuario.getTipoGuardia()
         ));
     }
 
@@ -256,7 +310,10 @@ public class UsuarioServiceImpl implements UsuarioService {
                 usuario.getRol().getNombre(),
                 usuario.getTipoUsuario(),
                 usuario.isEnabled(),
-                usuario.getCreatedAt()
+                usuario.getCreatedAt(),
+                usuario.getCampus() != null ? usuario.getCampus().getId() : null,
+                usuario.getZona() != null ? usuario.getZona().getId() : null,
+                usuario.getTipoGuardia()
         )).map(impl -> (UsuarioResumenProjection) impl).toList();
     }
 
@@ -270,7 +327,10 @@ public class UsuarioServiceImpl implements UsuarioService {
                 usuario.getRol().getNombre(),
                 usuario.getTipoUsuario(),
                 usuario.isEnabled(),
-                usuario.getCreatedAt()
+                usuario.getCreatedAt(),
+                usuario.getCampus() != null ? usuario.getCampus().getId() : null,
+                usuario.getZona() != null ? usuario.getZona().getId() : null,
+                usuario.getTipoGuardia()
         );
     }
 }

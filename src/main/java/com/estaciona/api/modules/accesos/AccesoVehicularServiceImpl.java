@@ -69,6 +69,17 @@ public class AccesoVehicularServiceImpl implements AccesoVehicularService {
         Usuario guardiaEntrada = usuarioRepository.findById(guardiaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", guardiaId));
 
+        if (guardiaEntrada.getRol() != null && "SEGURIDAD".equalsIgnoreCase(guardiaEntrada.getRol().getNombre())) {
+            if (guardiaEntrada.getZona() == null || !guardiaEntrada.getZona().getId().equals(zona.getId())) {
+                throw new com.estaciona.api.common.exception.BusinessRuleException(
+                        "El guardia no está asignado a esta zona de estacionamiento.");
+            }
+            if (!"entrada".equalsIgnoreCase(guardiaEntrada.getTipoGuardia())) {
+                throw new com.estaciona.api.common.exception.BusinessRuleException(
+                        "El guardia no tiene permisos para registrar ingresos (es de salida).");
+            }
+        }
+
         // 5. Construir el acceso vehicular
         AccesoVehicular acceso = AccesoVehicular.builder()
                 .usuario(vehiculo.getUsuario()) // propietario
@@ -105,6 +116,18 @@ public class AccesoVehicularServiceImpl implements AccesoVehicularService {
         // 3. Buscar guardia de salida
         Usuario guardiaSalida = usuarioRepository.findById(guardiaSalidaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", guardiaSalidaId));
+
+        if (guardiaSalida.getRol() != null && "SEGURIDAD".equalsIgnoreCase(guardiaSalida.getRol().getNombre())) {
+            Zona zonaAcceso = acceso.getZona();
+            if (guardiaSalida.getZona() == null || !guardiaSalida.getZona().getId().equals(zonaAcceso.getId())) {
+                throw new com.estaciona.api.common.exception.BusinessRuleException(
+                        "El guardia no está asignado a esta zona de estacionamiento.");
+            }
+            if (!"salida".equalsIgnoreCase(guardiaSalida.getTipoGuardia())) {
+                throw new com.estaciona.api.common.exception.BusinessRuleException(
+                        "El guardia no tiene permisos para registrar salidas (es de entrada).");
+            }
+        }
 
         // 4. Completar acceso
         acceso.setHoraSalida(OffsetDateTime.now());

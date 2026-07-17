@@ -52,4 +52,15 @@ public class Usuario extends AuditableEntity {
     @Builder.Default
     @Column(name = "enabled", nullable = false)
     private boolean enabled = true;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "campus_id")
+    private com.estaciona.api.modules.campus.entity.Campus campus;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "zona_id")
+    private com.estaciona.api.modules.zonas.entity.Zona zona;
+
+    @Column(name = "tipo_guardia", length = 10)
+    private String tipoGuardia;
 }

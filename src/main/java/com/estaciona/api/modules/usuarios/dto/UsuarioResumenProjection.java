@@ -32,4 +32,10 @@ public interface UsuarioResumenProjection {
     Boolean getEnabled();
 
     java.time.Instant getCreatedAt();
+
+    Integer getCampusId();
+
+    Integer getZonaId();
+
+    String getTipoGuardia();
 }

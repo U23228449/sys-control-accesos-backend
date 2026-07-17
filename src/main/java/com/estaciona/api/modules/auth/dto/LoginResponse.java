@@ -21,6 +21,9 @@ public record LoginResponse(
             UUID id,
             String nombreCompleto,
             String correo,
-            String rol
+            String rol,
+            Integer campusId,
+            Integer zonaId,
+            String tipoGuardia
     ) {}
 }

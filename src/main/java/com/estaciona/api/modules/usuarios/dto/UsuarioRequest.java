@@ -34,5 +34,13 @@ public record UsuarioRequest(
 
         @NotBlank(message = "La contraseña es obligatoria.")
         @Size(min = 8, message = "La contraseña debe tener al menos 8 caracteres.")
-        String password
-) {}
+        String password,
+
+        Integer campusId,
+        Integer zonaId,
+        String tipoGuardia
+) {
+    public UsuarioRequest(String nombreCompleto, String correo, String documento, Integer rolId, String tipoUsuario, String password) {
+        this(nombreCompleto, correo, documento, rolId, tipoUsuario, password, null, null, null);
+    }
+}

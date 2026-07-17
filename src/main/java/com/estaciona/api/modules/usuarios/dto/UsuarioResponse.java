@@ -15,5 +15,8 @@ public record UsuarioResponse(
         String rol,
         String tipoUsuario,
         boolean enabled,
-        Instant createdAt
+        Instant createdAt,
+        Integer campusId,
+        Integer zonaId,
+        String tipoGuardia
 ) {}

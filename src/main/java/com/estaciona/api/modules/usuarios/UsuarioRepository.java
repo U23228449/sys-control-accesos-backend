@@ -40,12 +40,16 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID>,
     /** Cuenta los administradores activos del sistema. Usado para proteger al último admin. */
     long countByRolNombreAndEnabledTrue(String rolNombre);
 
+    /** Valida si ya existe un guardia con el mismo tipo asignado a la zona. */
+    boolean existsByZonaIdAndTipoGuardiaIgnoreCaseAndEnabledTrue(Integer zonaId, String tipoGuardia);
+
     /**
      * Lista todos los usuarios con proyección resumida (sin filtros).
      * El alias 'rolNombre' mapea u.rol.nombre a {@link UsuarioResumenProjection#getRolNombre()}.
      */
     @Query("SELECT u.id as id, u.nombreCompleto as nombreCompleto, u.correo as correo, " +
            "u.documento as documento, u.rol.nombre as rolNombre, u.tipoUsuario as tipoUsuario, " +
-           "u.enabled as enabled, u.createdAt as createdAt FROM Usuario u")
+           "u.enabled as enabled, u.createdAt as createdAt, u.campus.id as campusId, " +
+           "u.zona.id as zonaId, u.tipoGuardia as tipoGuardia FROM Usuario u")
     Page<UsuarioResumenProjection> findAllProjected(Pageable pageable);
 }

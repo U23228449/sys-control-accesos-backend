@@ -18,4 +18,7 @@ public interface ZonaRepository extends JpaRepository<Zona, Integer>, JpaSpecifi
 
     /** Valida unicidad de nombre en el campus excluyendo la zona actual (para updates). */
     boolean existsByCampusIdAndNombreIgnoreCaseAndIdNot(Integer campusId, String nombre, Integer id);
+
+    /** Valida si ya existe una zona habilitada en el campus. */
+    boolean existsByCampusIdAndEnabledTrue(Integer campusId);
 }

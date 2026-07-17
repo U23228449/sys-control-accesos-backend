@@ -1,5 +1,6 @@
 package com.estaciona.api.modules.zonas;
 
+import com.estaciona.api.common.exception.BusinessRuleException;
 import com.estaciona.api.common.exception.DuplicateResourceException;
 import com.estaciona.api.common.exception.ResourceNotFoundException;
 import com.estaciona.api.modules.campus.CampusRepository;
@@ -53,6 +54,12 @@ public class ZonaEstacionamientoServiceImpl implements ZonaEstacionamientoServic
         Campus campus = campusRepository.findById(request.campusId())
                 .filter(Campus::isEnabled)
                 .orElseThrow(() -> new ResourceNotFoundException("Campus", request.campusId()));
+
+        // 1.5. Validar que el campus no tenga ya una zona de estacionamiento registrada
+        if (zonaRepository.existsByCampusIdAndEnabledTrue(request.campusId())) {
+            throw new BusinessRuleException(
+                    "El campus ya cuenta con una zona de estacionamiento registrada. Solo se permite una zona por campus.");
+        }
 
         // 2. Validar unicidad del nombre dentro del campus
         if (zonaRepository.existsByCampusIdAndNombreIgnoreCase(request.campusId(), request.nombre())) {
